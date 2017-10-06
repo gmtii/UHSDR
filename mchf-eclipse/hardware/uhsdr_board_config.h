@@ -427,8 +427,8 @@
 // ----                         PORT B                                      ----
 // -----------------------------------------------------------------------------
 // pin 0
-#define BUTTON_BNDM             GPIO_PIN_0
-#define BUTTON_BNDM_PIO         GPIOB
+#define BUTTON_BNDM             GPIO_PIN_8 // PC0
+#define BUTTON_BNDM_PIO         GPIOC
 // pin 1
 #define PTT_CNTR                GPIO_PIN_1
 #define PTT_CNTR_PIO            GPIOB
@@ -491,11 +491,11 @@
 #define LCD_MOSI                GPIO_PIN_3
 #define LCD_MOSI_PIO            GPIOC
 // pin 4
-#define BUTTON_STEPM            GPIO_PIN_4
-#define BUTTON_STEPM_PIO        GPIOC
+#define BUTTON_STEPM            GPIO_PIN_5
+#define BUTTON_STEPM_PIO        GPIOG
 // pin 5
-#define BUTTON_STEPP            GPIO_PIN_5
-#define BUTTON_STEPP_PIO        GPIOC
+#define BUTTON_STEPP            GPIO_PIN_8
+#define BUTTON_STEPP_PIO        GPIOG
 // pin 6
 #define FREQ_ENC_CH1            GPIO_PIN_6
 #define FREQ_ENC_CH1_PIO        GPIOC
@@ -696,8 +696,8 @@
 #define AUDIO_PA_EN             GPIO_PIN_5
 #define AUDIO_PA_EN_PIO         GPIOG
 // pin 6
-#define BUTTON_G1               GPIO_PIN_6
-#define BUTTON_G1_PIO           GPIOG
+#define BUTTON_G1               GPIO_PIN_0
+#define BUTTON_G1_PIO           GPIOE
 // pin 7
 #define BUTTON_E4               GPIO_PIN_7
 #define BUTTON_E4_PIO           GPIOG
@@ -707,7 +707,7 @@
 // pin 9
 // pin 10
 // pin 11
-#define BUTTON_G4               GPIO_PIN_11
+#define BUTTON_G4               GPIO_PIN_14
 #define BUTTON_G4_PIO           GPIOG
 // pin 12
 // pin 13

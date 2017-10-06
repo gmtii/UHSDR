@@ -22,7 +22,7 @@
 #include "radio_management.h"
 // ------------------------------------------------
 // Spectrum display public
-SpectrumDisplay  __MCHF_SPECIALMEM       sd;
+SpectrumDisplay   __MCHF_SPECIALMEM      sd;
 // this data structure is now located in the Core Connected Memory of the STM32F4
 // this is highly hardware specific code. This data structure nicely fills the 64k with roughly 60k.
 // If this data structure is being changed,  be aware of the 64k limit. See linker script arm-gcc-link.ld
@@ -635,16 +635,16 @@ static void UiSpectrum_InitSpectrumDisplayData()
 
     if(ts.spectrum_size == SPECTRUM_NORMAL)	 						// waterfall the same size as spectrum scope
     {
-        sd.wfall_ystart = SPECTRUM_START_Y + SPECTRUM_SCOPE_TOP_LIMIT;
-        sd.wfall_size = SPECTRUM_HEIGHT - SPECTRUM_SCOPE_TOP_LIMIT;
+        sd.wfall_ystart = SPECTRUM_START_Y + SPECTRUM_SCOPE_TOP_LIMIT+100;
+        sd.wfall_size = (SPECTRUM_HEIGHT - SPECTRUM_SCOPE_TOP_LIMIT+150);
 
         sd.scope_ystart = SPECTRUM_START_Y;
         sd.scope_size = SPECTRUM_HEIGHT;
     }																	// waterfall larger, covering the word "Waterfall Display"
     else if(ts.spectrum_size == SPECTRUM_BIG)
     {
-        sd.wfall_ystart = SPECTRUM_START_Y - WFALL_MEDIUM_ADDITIONAL;
-        sd.wfall_size = SPECTRUM_HEIGHT + WFALL_MEDIUM_ADDITIONAL;
+        sd.wfall_ystart = SPECTRUM_START_Y - WFALL_MEDIUM_ADDITIONAL+100;
+        sd.wfall_size = (SPECTRUM_HEIGHT + WFALL_MEDIUM_ADDITIONAL+150);
 
         sd.scope_ystart = SPECTRUM_START_Y - SPEC_LIGHT_MORE_POINTS;
         sd.scope_size = SPECTRUM_HEIGHT + SPEC_LIGHT_MORE_POINTS;
@@ -664,12 +664,10 @@ static void UiSpectrum_InitSpectrumDisplayData()
 
 void UiSpectrum_WaterfallClearData()
 {
-    for(int i = 0; i < WATERFALL_MAX_SIZE; i++)   // clear old wf lines if changing magnify
+    for(int i = 0; i < SPECTRUM_WIDTH; i++)   // clear old wf lines if changing magnify
     {
-        for(int j = 0; j < SPECTRUM_WIDTH; j++)
-        {
-            sd.waterfall[i][j] = 0;
-        }
+
+            sd.waterfall[i] = 0;
     }
 }
 
@@ -678,6 +676,7 @@ static void UiSpectrum_DrawWaterfall()
 {
     sd.wfall_line %= sd.wfall_size; // make sure that the circular buffer is clipped to the size of the display area
 
+
     // Contrast:  100 = 1.00 multiply factor:  125 = multiply by 1.25 - "sd.wfall_contrast" already converted to 100=1.00
     arm_scale_f32(sd.FFT_Samples, sd.wfall_contrast, sd.FFT_Samples, SPEC_BUFF_LEN);
 
@@ -685,60 +684,41 @@ static void UiSpectrum_DrawWaterfall()
     UiSpectrum_UpdateSpectrumPixelParameters(); // before accessing pixel parameters, request update according to configuration
 
 
+
+
     const uint16_t tx_line_pixel_pos = sd.tx_carrier_pos;
 
+    uint16_t spectrum_pixel_buf[SPECTRUM_WIDTH];
+
     // After the above manipulation, clip the result to make sure that it is within the range of the palette table
-    for(uint16_t i = 0; i < SPEC_BUFF_LEN; i++)
+    for(uint16_t i = 0; i < SPECTRUM_WIDTH; i++)
     {
         if(sd.FFT_Samples[i] >= NUMBER_WATERFALL_COLOURS)   // is there an illegal color value?
         {
             sd.FFT_Samples[i] = NUMBER_WATERFALL_COLOURS - 1;   // yes - clip it
         }
 
-        sd.waterfall[sd.wfall_line][i] = sd.FFT_Samples[i]; // save the manipulated value in the circular waterfall buffer
+        spectrum_pixel_buf[i] = sd.waterfall_colours[ (uint8_t) sd.FFT_Samples[i]];    // write to memory using waterfall color from palette
     }
 
     // Place center line marker on screen:  Location [64] (the 65th) of the palette is reserved is a special color reserved for this
     if (tx_line_pixel_pos < SPECTRUM_WIDTH)
     {
-        sd.waterfall[sd.wfall_line][tx_line_pixel_pos] = NUMBER_WATERFALL_COLOURS;
+        spectrum_pixel_buf[tx_line_pixel_pos] = NUMBER_WATERFALL_COLOURS;
     }
 
-    sd.wfall_line++;        // bump to the next line in the circular buffer for next go-around
 
-    uint16_t lptr = sd.wfall_line;      // get current line of "bottom" of waterfall in circular buffer
+    UiLcdHy28_BulkPixel_OpenWrite(SPECTRUM_START_X, SPECTRUM_WIDTH, (sd.wfall_ystart+sd.wfall_size-sd.wfall_line), 1);
+    UiLcdHy28_BulkPixel_PutBuffer(spectrum_pixel_buf, SPECTRUM_WIDTH);
+    UiLcdHy28_BulkPixel_CloseWrite();
 
-    sd.wfall_line_update++;                                 // update waterfall line count
-    sd.wfall_line_update %= ts.waterfall.vert_step_size;    // clip it to number of lines per iteration
+    UiLcdRA8875_setScrollWindow(
+            0,
+            SPECTRUM_WIDTH -1,
+            (sd.wfall_ystart),
+            (sd.wfall_ystart)+sd.wfall_size);
 
-    if(!sd.wfall_line_update)                               // if it's count is zero, it's time to move the waterfall up
-    {
-
-        lptr %= sd.wfall_size;      // do modulus limit of spectrum high
-
-        // set up LCD for bulk write, limited only to area of screen with waterfall display.  This allow data to start from the
-        // bottom-left corner and advance to the right and up to the next line automatically without ever needing to address
-        // the location of any of the display data - as long as we "blindly" write precisely the correct number of pixels per
-        // line and the number of lines.
-
-        UiLcdHy28_BulkPixel_OpenWrite(SPECTRUM_START_X, SPECTRUM_WIDTH, (sd.wfall_ystart + 1), sd.wfall_size);
-
-        uint16_t spectrum_pixel_buf[SPECTRUM_WIDTH];
-
-        for(uint16_t lcnt = 0;lcnt < sd.wfall_size; lcnt++)                 // set up counter for number of lines defining height of waterfall
-        {
-            for(uint16_t i = 0; i < SPECTRUM_WIDTH; i++)      // scan to copy one line of spectral data - "unroll" to optimize for ARM processor
-            {
-                spectrum_pixel_buf[i] = sd.waterfall_colours[sd.waterfall[lptr][i]];    // write to memory using waterfall color from palette
-            }
-
-            UiLcdHy28_BulkPixel_PutBuffer(spectrum_pixel_buf, SPECTRUM_WIDTH);
-
-            lptr++;                                 // point to next line in circular display buffer
-            lptr %= sd.wfall_size;              // clip to display height
-        }
-        UiLcdHy28_BulkPixel_CloseWrite();                   // we are done updating the display - return to normal full-screen mode
-    }
+    UiLcdRA8875_scroll(0,sd.wfall_size-sd.wfall_line++);
 }
 
 static float32_t  UiSpectrum_ScaleFFT(const float32_t value, float32_t* min_p)
@@ -781,7 +761,7 @@ static void UiSpectrum_RedrawSpectrum()
     }
     case 2:		// Do FFT and calculate complex magnitude
     {
-        arm_cfft_f32(&arm_cfft_sR_f32_len256, sd.FFT_Samples,0,1);	// Do FFT
+        arm_cfft_f32(&arm_cfft_sR_f32_len1024, sd.FFT_Samples,0,1);	// Do FFT
 
         // Calculate magnitude
         arm_cmplx_mag_f32( sd.FFT_Samples, sd.FFT_MagData ,SPEC_BUFF_LEN);
@@ -852,14 +832,37 @@ static void UiSpectrum_RedrawSpectrum()
     }
     case 5:	// rescale waterfall horizontally, apply brightness/contrast, process pallate and put vertical line on screen, if enabled.
     {
-        if(is_waterfallmode())
+
+        uint16_t j=0,i=0;
+
+        for (i=0; i<SPEC_BUFF_LEN; i++)
         {
-            UiSpectrum_DrawWaterfall();
+
+            if ( (i % 5) )
+            {
+                sd.FFT_TempData[j]=sd.FFT_Samples[i];
+                j++;
+            }
         }
-        else
+
+        for (i=0; i<SPECTRUM_WIDTH; i++)
         {
-            UiSpectrum_DrawScope(sd.Old_PosData, sd.FFT_Samples);
+
+                sd.FFT_Samples[i]=sd.FFT_TempData[i];
         }
+
+        UiSpectrum_DrawWaterfall();
+        UiSpectrum_DrawScope(sd.Old_PosData, sd.FFT_Samples);
+
+
+//        if(is_waterfallmode())
+//        {
+//            UiSpectrum_DrawWaterfall();
+//        }
+//        else
+//        {
+//            UiSpectrum_DrawScope(sd.Old_PosData, sd.FFT_Samples);
+//        }
         sd.state = 0;
         break;
 

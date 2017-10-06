@@ -5850,7 +5850,7 @@ void UiDriver_StartUpScreenFinish()
 
     if(startUpError == true)
     {
-        hold_time = 15000; // 15s
+        hold_time = 3000; // 15s
         txp = "Boot Delay because of Errors or Warnings";
         clr = Red3;
         fg_clr = Black;

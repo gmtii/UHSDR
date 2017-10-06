@@ -24,7 +24,7 @@
 // 24 bits are not supported anywhere in the recent code!
 //#define USE_24_BITS
 
-#define IQ_SAMPLE_RATE (48000)
+#define IQ_SAMPLE_RATE (96000)
 #define IQ_SAMPLE_RATE_F ((float32_t)IQ_SAMPLE_RATE)
 //const float32_t IQ_SAMPLE_RATE_F = ((float32_t)IQ_SAMPLE_RATE);
 
@@ -34,7 +34,7 @@
 
 // -----------------------------
 // FFT buffer, this is double the size of the length of the FFT used for spectrum display and waterfall spectrum
-#define FFT_IQ_BUFF_LEN		512
+#define FFT_IQ_BUFF_LEN		2048
 #define SPEC_BUFF_LEN (FFT_IQ_BUFF_LEN/2)
 
 //

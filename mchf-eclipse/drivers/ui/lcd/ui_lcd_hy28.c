@@ -22,6 +22,8 @@
     #define USE_SPI_HAL
 #endif
 
+#define USE_DRIVER_RA8875
+
 #define USE_DISPLAY_PAR
 #define USE_SPI_DMA
 
@@ -41,12 +43,22 @@
         #define MEM_Init() MX_FSMC_Init()
     #endif
 
+    #ifdef USE_DRIVER_RA8875
+    #define LCD_REG      (*((volatile unsigned short *) 0x60004000))
+    #else
+
     #define LCD_REG      (*((volatile unsigned short *) 0x60000000))
+    #endif
 
     #if defined(UI_BRD_MCHF)
     #define LCD_RAM      (*((volatile unsigned short *) 0x60020000))
     #elif defined(UI_BRD_OVI40)
+
+    #ifdef USE_DRIVER_RA8875
+    #define LCD_RAM      (*((volatile unsigned short *) 0x60000000))
+    #else
     #define LCD_RAM      (*((volatile unsigned short *) 0x60004000))
+    #endif
     #endif
 #endif
 
@@ -317,7 +329,50 @@ static const RegisterValue_t ili932x[] =
 };
 
 
+static const RegisterValue_t ra8875[] =
+{
+        { 0x01, 0x01 }, // Software reset the LCD
+        { 0x01, 0x00 },
+        { 0x88, 0x0a },
+        { 0x89, 0x02 },
+        { 0x10, 0x0F },   // 65K 16 bit 8080 mpu interface
+        { 0x04, 0x80 },   // 00b: PCLK period = System Clock period.
+        //Horizontal set
+        { 0x14, 0x63 }, //Horizontal display width(pixels) = (HDWR + 1)*8
+        { 0x15, 0x00 }, //Horizontal Non-Display Period Fine Tuning(HNDFT) [3:0]
+        { 0x16, 0x03 }, //Horizontal Non-Display Period (pixels) = (HNDR + 1)*8
+        { 0x17, 0x03 }, //HSYNC Start Position(PCLK) = (HSTR + 1)*8
+        { 0x18, 0x0B }, //HSYNC Width [4:0]   HSYNC Pulse width(PCLK) = (HPWR + 1)*8
+        //Vertical set
+        { 0x19, 0xdf }, //Vertical pixels = VDHR + 1
+        { 0x1a, 0x01 }, //Vertical pixels = VDHR + 1
+        { 0x1b, 0x20 }, //Vertical Non-Display area = (VNDR + 1)
+        { 0x1c, 0x00 }, //Vertical Non-Display area = (VNDR + 1)
+        { 0x1d, 0x16 }, //VSYNC Start Position(PCLK) = (VSTR + 1)
+        { 0x1e, 0x00 }, //VSYNC Start Position(PCLK) = (VSTR + 1)
+        { 0x1f, 0x01 }, //VSYNC Pulse Width(PCLK) = (VPWR + 1)
+        // setting active window 0,799,0,479
+        { 0x30, 0x00 },
+        { 0x31, 0x00 },
+        { 0x34, 0x1f },
+        { 0x35, 0x03 },
+        { 0x32, 0x00 },
+        { 0x33, 0x00 },
+        { 0x37, 0xDF },
+        { 0x37, 0x01 },
+        { 0x8a, 0x80 },
+        { 0x8a, 0x81 }, //open PWM
+        { 0x8b, 0x1f }, //Brightness parameter 0xff-0x00
+        { 0x01, 0x80 }, //display on
 
+        //UiLcdHy28_WriteReg(LCD_DPCR,0b00001111}, // rotacion 180º
+
+        { 0x60, 0x00 }, /* ra8875_red */
+        { 0x61, 0x00 }, /* ra8875_green */
+        { 0x62, 0x00 }, /* ra8875_blue */
+
+        { 0x8E, 0x80},
+};
 
 
 
@@ -668,6 +723,24 @@ unsigned short UiLcdHy28_LcdReadDataSpi()
     return value;
 }
 
+#ifdef USE_DRIVER_RA8875
+
+void UiLcdHy28_WriteReg(unsigned short LCD_Reg, unsigned short LCD_RegValue)
+{
+
+    ushort temp;
+    do {
+        temp = LCD_REG;
+    } while ((temp & 0x80) == 0x80);
+
+    LCD_REG = LCD_Reg;
+    __DMB();
+    LCD_RAM = LCD_RegValue;
+    __DMB();
+}
+
+#else
+
 void UiLcdHy28_WriteReg(unsigned short LCD_Reg, unsigned short LCD_RegValue)
 {
     if(UiLcdHy28_SpiDisplayUsed())
@@ -683,6 +756,26 @@ void UiLcdHy28_WriteReg(unsigned short LCD_Reg, unsigned short LCD_RegValue)
         __DMB();
     }
 }
+
+#endif
+
+
+#ifdef USE_DRIVER_RA8875
+
+unsigned short UiLcdHy28_ReadReg( unsigned short LCD_Reg)
+{
+    uint16_t retval;
+
+    // Write 16-bit Index (then Read Reg)
+    LCD_REG = LCD_Reg;
+    // Read 16-bit Reg
+    __DMB();
+    retval = LCD_RAM;
+
+    return retval;
+}
+
+#else
 
 unsigned short UiLcdHy28_ReadReg( unsigned short LCD_Reg)
 {
@@ -706,11 +799,49 @@ unsigned short UiLcdHy28_ReadReg( unsigned short LCD_Reg)
     return retval;
 }
 
+#endif
+
+#ifdef USE_DRIVER_RA8875
+
+void UiLcdHy28_SetCursorA(unsigned short Xpos, unsigned short Ypos)
+{
+
+    unsigned short temp;
+
+    /* Horizontal start */
+    temp = Xpos;
+    UiLcdHy28_WriteReg(0x46, temp);
+    temp = Xpos >> 8;
+    UiLcdHy28_WriteReg(0x47, temp);
+
+    /* Horizontal end */
+    temp = Ypos;
+    UiLcdHy28_WriteReg(0x48, temp);
+    temp = Ypos >> 8;
+    UiLcdHy28_WriteReg(0x49, temp);
+
+}
+
+#else
+
 static void UiLcdHy28_SetCursorA( unsigned short Xpos, unsigned short Ypos )
 {
     UiLcdHy28_WriteReg(0x20, Ypos );
     UiLcdHy28_WriteReg(0x21, Xpos );
 }
+
+#endif
+
+#ifdef USE_DRIVER_RA8875
+
+static void UiLcdHy28_WriteRAM_Prepare()
+{
+    LCD_REG = 0x02;
+    __DMB();
+
+}
+
+#else
 
 static void UiLcdHy28_WriteRAM_Prepare()
 {
@@ -725,6 +856,50 @@ static void UiLcdHy28_WriteRAM_Prepare()
         __DMB();
     }
 }
+
+#endif
+
+
+#ifdef USE_DRIVER_RA8875
+
+void UiLcdRA8875_SetForegroundColor(uint16_t Color)
+{
+    UiLcdHy28_WriteReg(0x63, (uint16_t) (Color >> 11)); /* ra8875_red */
+    UiLcdHy28_WriteReg(0x64, (uint16_t) (Color >> 5)); /* ra8875_green */
+    UiLcdHy28_WriteReg(0x65, (uint16_t) (Color)); /* ra8875_blue */
+}
+
+void UiLcdRA8875_SetActiveWindow(uint16_t XLeft, uint16_t XRight, uint16_t YTop,
+        uint16_t YBottom)
+{
+
+    uint16_t temp;
+
+    /* setting active window X */
+    temp = XLeft;
+    UiLcdHy28_WriteReg(0x30, temp);
+    temp = XLeft >> 8;
+    UiLcdHy28_WriteReg(0x31, temp);
+
+    temp = XRight;
+    UiLcdHy28_WriteReg(0x34, temp);
+    temp = XRight >> 8;
+    UiLcdHy28_WriteReg(0x35, temp);
+
+    /* setting active window Y */
+    temp = YTop;
+    UiLcdHy28_WriteReg(0x32, temp);
+    temp = YTop >> 8;
+    UiLcdHy28_WriteReg(0x33, temp);
+
+    temp = YBottom;
+    UiLcdHy28_WriteReg(0x36, temp);
+    temp = YBottom >> 8;
+    UiLcdHy28_WriteReg(0x37, temp);
+
+}
+
+#endif
 
 static void UiLcdHy28_BulkWrite(uint16_t* pixel, uint32_t len)
 {
@@ -769,6 +944,30 @@ static void UiLcdHy28_FinishWaitBulkWrite()
     }
 }
 
+#ifdef USE_DRIVER_RA8875
+
+static void UiLcdHy28_OpenBulkWrite(ushort x, ushort width, ushort y,
+        ushort height)
+{
+
+    UiLcdHy28_FinishWaitBulkWrite();
+
+    UiLcdRA8875_SetActiveWindow(x, x + width - 1, y, y + height - 1);
+    UiLcdHy28_SetCursorA(x, y);
+    UiLcdHy28_WriteRAM_Prepare();
+
+}
+
+static void UiLcdHy28_CloseBulkWrite()
+{
+
+    UiLcdRA8875_SetActiveWindow(0, 799, 0, 479);
+    UiLcdHy28_WriteReg(0x40, 0);
+
+}
+
+#else
+
 static void UiLcdHy28_OpenBulkWrite(ushort x, ushort width, ushort y, ushort height)
 {
 
@@ -790,9 +989,7 @@ static void UiLcdHy28_OpenBulkWrite(ushort x, ushort width, ushort y, ushort hei
 static void UiLcdHy28_CloseBulkWrite()
 {
 }
-
-
-
+#endif
 
 #define PIXELBUFFERSIZE 512
 #define PIXELBUFFERCOUNT 2
@@ -882,6 +1079,20 @@ void UiLcdHy28_LcdClear(ushort Color)
 }
 
 #if 1
+
+#ifdef USE_DRIVER_RA8875
+
+void UiLcdHy28_DrawColorPoint(unsigned short Xpos, unsigned short Ypos,
+        unsigned short point)
+{
+    if( Xpos < MAX_X && Ypos < MAX_Y )
+    {
+    UiLcdHy28_SetCursorA(Xpos, Ypos);
+    UiLcdHy28_WriteReg(0x02, point);
+    }
+}
+#else
+
 void UiLcdHy28_DrawColorPoint( unsigned short Xpos, unsigned short Ypos, unsigned short point)
 {
 
@@ -893,6 +1104,45 @@ void UiLcdHy28_DrawColorPoint( unsigned short Xpos, unsigned short Ypos, unsigne
     }
 }
 #endif
+#endif
+
+#ifdef USE_DRIVER_RA8875
+
+void UiLcdHy28_DrawFullRect(ushort Xpos, ushort Ypos, ushort Height,
+        ushort Width, ushort color)
+{
+
+    ushort temp;
+
+    UiLcdRA8875_SetForegroundColor(color);
+    /* Horizontal start */
+    temp = Xpos;
+    UiLcdHy28_WriteReg(0x91, temp);
+    temp = Xpos >> 8;
+    UiLcdHy28_WriteReg(0x92, temp);
+
+    /* Horizontal end */
+    temp = (Xpos + Width);
+    UiLcdHy28_WriteReg(0x95, temp);
+    temp = (Xpos + Width) >> 8;
+    UiLcdHy28_WriteReg(0x96, temp);
+
+    /* Vertical start */
+    temp = Ypos;
+    UiLcdHy28_WriteReg(0x93, temp);
+    temp = Ypos >> 8;
+    UiLcdHy28_WriteReg(0x94, temp);
+
+    /* Vertical end */
+    temp = (Ypos + Height);
+    UiLcdHy28_WriteReg(0x97, temp);
+    temp = (Ypos + Height) >> 8;
+    UiLcdHy28_WriteReg(0x98, temp);
+
+    UiLcdHy28_WriteReg(0x90, 0xB0);
+}
+
+#else
 
 void UiLcdHy28_DrawFullRect(ushort Xpos, ushort Ypos, ushort Height, ushort Width ,ushort color)
 {
@@ -900,6 +1150,109 @@ void UiLcdHy28_DrawFullRect(ushort Xpos, ushort Ypos, ushort Height, ushort Widt
     UiLcdHy28_BulkWriteColor(color,(uint32_t)Height * (uint32_t)Width);
     UiLcdHy28_CloseBulkWrite();
 }
+#endif
+
+
+#ifdef  USE_DRIVER_RA8875
+/*
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
++                               SCROLL STUFF                                             +
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+*/
+/**************************************************************************/
+/*!
+        Sets the scroll mode. This is controlled by bits 6 and 7 of
+        REG[52h] Layer Transparency Register0 (LTPR0)
+        Author: The Experimentalist
+*/
+/**************************************************************************/
+void UiLcdRA8875_setScrollMode(uint8_t mode)
+{
+
+#define RA8875_LTPR0                  0x52//Layer Transparency Register 0
+
+    uint8_t temp = UiLcdHy28_ReadReg(RA8875_LTPR0);
+    temp &= 0x3F;            // Clear bits 6 and 7 to zero
+    switch(mode){           // bit 7,6 of LTPR0
+        case 0:  // 00b : Layer 1/2 scroll simultaneously.
+            // Do nothing
+        break;
+        case 1:        // 01b : Only Layer 1 scroll.
+            temp |= 0x40;
+        break;
+        case 2:        // 10b : Only Layer 2 scroll.
+            temp |= 0x80;
+        break;
+        case 3:          // 11b: Buffer scroll (using Layer 2 as scroll buffer)
+            temp |= 0xC0;
+        break;
+        default:
+            return;             //do nothing
+    }
+    LCD_RAM=temp;
+    __DMB();
+
+}
+
+/**************************************************************************/
+/*!
+        Define a window for perform scroll
+        Parameters:
+        XL: x window start left
+        XR: x window end right
+        YT: y window start top
+        YB: y window end bottom
+*/
+/**************************************************************************/
+void UiLcdRA8875_setScrollWindow(int16_t XL,int16_t XR ,int16_t YT ,int16_t YB)
+{
+
+#define RA8875_HSSW0                  0x38//Horizontal Start Point 0 of Scroll Window
+//#define RA8875_HSSW1                0x39//Horizontal Start Point 1 of Scroll Window
+#define RA8875_VSSW0                  0x3A//Vertical     Start Point 0 of Scroll Window
+//#define RA8875_VSSW1                0x3B//Vertical     Start Point 1 of Scroll Window
+#define RA8875_HESW0                  0x3C//Horizontal End   Point 0 of Scroll Window
+//#define RA8875_HESW1                0x3D//Horizontal End   Point 1 of Scroll Window
+#define RA8875_VESW0                  0x3E//Vertical     End   Point 0 of Scroll Window
+//#define RA8875_VESW1                0x3F//Vertical     End   Point 1 of Scroll Window
+
+
+    UiLcdHy28_WriteReg(RA8875_HSSW0,(XL & 0xFF));
+    UiLcdHy28_WriteReg(RA8875_HSSW0+1,(XL >> 8));
+
+    UiLcdHy28_WriteReg(RA8875_HESW0,(XR & 0xFF));
+    UiLcdHy28_WriteReg(RA8875_HESW0+1,(XR >> 8));
+
+    UiLcdHy28_WriteReg(RA8875_VSSW0,(YT & 0xFF));
+    UiLcdHy28_WriteReg(RA8875_VSSW0+1,(YT >> 8));
+
+    UiLcdHy28_WriteReg(RA8875_VESW0,(YB & 0xFF));
+    UiLcdHy28_WriteReg(RA8875_VESW0+1,(YB >> 8));
+
+}
+
+/**************************************************************************/
+/*!
+        Perform the scroll
+*/
+/**************************************************************************/
+void UiLcdRA8875_scroll(int16_t x,int16_t y)
+{
+
+#define RA8875_HOFS0                  0x24//Horizontal Scroll Offset Register 0
+#define RA8875_HOFS1                  0x25//Horizontal Scroll Offset Register 1
+#define RA8875_VOFS0                  0x26//Vertical Scroll Offset Register 0
+#define RA8875_VOFS1                  0x27//Vertical Scroll Offset Register 1
+
+    UiLcdHy28_WriteReg(RA8875_HOFS0,(x & 0xFF));
+    UiLcdHy28_WriteReg(RA8875_HOFS1,(x >> 8));
+
+    UiLcdHy28_WriteReg(RA8875_VOFS0,(y & 0xFF));
+    UiLcdHy28_WriteReg(RA8875_VOFS1,(y >> 8));
+
+}
+
+#endif
 
 
 void UiLcdHy28_DrawStraightLineWidth(ushort x, ushort y, ushort Length, uint16_t Width, uchar Direction,ushort color)
@@ -914,11 +1267,91 @@ void UiLcdHy28_DrawStraightLineWidth(ushort x, ushort y, ushort Length, uint16_t
     }
 }
 
+#ifdef  USE_DRIVER_RA8875
+
+void UiLcdHy28_DrawStraightLine(ushort x, ushort y, ushort Length, uchar Direction,
+        ushort color) {
+
+    /* Drawing Control Registers */
+    #define LCD_DCR     (0x90)      /* Draw Line/Circle/Square Control Register */
+    #define LCD_DLHSR0  (0x91)      /* Draw Line/Square Horizontal Start Address Register0 */
+    #define LCD_DLHSR1  (0x92)      /* Draw Line/Square Horizontal Start Address Register1 */
+    #define LCD_DLVSR0  (0x93)      /* Draw Line/Square Vertical Start Address Register0 */
+    #define LCD_DLVSR1  (0x94)      /* Draw Line/Square Vertical Start Address Register1 */
+    #define LCD_DLHER0  (0x95)      /* Draw Line/Square Horizontal End Address Register0 */
+    #define LCD_DLHER1  (0x96)      /* Draw Line/Square Horizontal End Address Register1 */
+    #define LCD_DLVER0  (0x97)      /* Draw Line/Square Vertical End Address Register0 */
+    #define LCD_DLVER1  (0x98)      /* Draw Line/Square Vertical End Address Register1 */
+
+    int16_t temp;
+
+    UiLcdRA8875_SetForegroundColor(color);
+
+    if (Direction == LCD_DIR_VERTICAL)
+
+    {
+        /* Horizontal start */
+        temp = x;
+        UiLcdHy28_WriteReg(LCD_DLHSR0, temp);
+        temp = x >> 8;
+        UiLcdHy28_WriteReg(LCD_DLHSR1, temp);
+
+        /* Horizontal end */
+        temp = x;
+        UiLcdHy28_WriteReg(LCD_DLHER0, temp);
+        temp = x >> 8;
+        UiLcdHy28_WriteReg(LCD_DLHER1, temp);
+
+        /* Vertical start */
+        temp = y;
+        UiLcdHy28_WriteReg(LCD_DLVSR0, temp);
+        temp = y >> 8;
+        UiLcdHy28_WriteReg(LCD_DLVSR1, temp);
+
+        /* Vertical end */
+        temp = (y + Length);
+        UiLcdHy28_WriteReg(LCD_DLVER0, temp);
+        temp = (y + Length) >> 8;
+        UiLcdHy28_WriteReg(LCD_DLVER1, temp);
+    } else {
+
+        /* Horizontal start */
+        temp = x;
+        UiLcdHy28_WriteReg(LCD_DLHSR0, temp);
+        temp = x >> 8;
+        UiLcdHy28_WriteReg(LCD_DLHSR1, temp);
+
+        /* Horizontal end */
+        temp = (x + Length);
+        UiLcdHy28_WriteReg(LCD_DLHER0, temp);
+        temp = (x + Length) >> 8;
+        UiLcdHy28_WriteReg(LCD_DLHER1, temp);
+
+        /* Vertical start */
+        temp = y;
+        UiLcdHy28_WriteReg(LCD_DLVSR0, temp);
+        temp = y >> 8;
+        UiLcdHy28_WriteReg(LCD_DLVSR1, temp);
+
+        /* Vertical end */
+        temp = y;
+        UiLcdHy28_WriteReg(LCD_DLVER0, temp);
+        temp = y >> 8;
+        UiLcdHy28_WriteReg(LCD_DLVER1, temp);
+    }
+
+    UiLcdHy28_WriteReg(LCD_DCR, 0x80);
+
+}
+
+#else
+
 
 void UiLcdHy28_DrawStraightLine(ushort x, ushort y, ushort Length, uchar Direction,ushort color)
 {
     UiLcdHy28_DrawStraightLineWidth(x, y, Length, 1, Direction, color);
 }
+#endif
 
 void UiLcdHy28_DrawStraightLineDouble(ushort x, ushort y, ushort Length, uchar Direction,ushort color)
 {
@@ -1353,6 +1786,31 @@ static uint16_t UiLcdHy28_InitA(uint32_t display_type)
  */
 uint8_t UiLcdHy28_Init()
 {
+
+#ifdef  USE_DRIVER_RA8875
+
+    uint8_t retval = DISPLAY_HY28B_PARALLEL;
+
+    mchf_display.use_spi = false;
+
+    // set CS for HY28B pinout
+    mchf_display.lcd_cs = LCD_CS;
+    mchf_display.lcd_cs_pio = LCD_CS_PIO;
+
+    // Parallel init
+    UiLcdHy28_ParallelInit();
+    UiLcdHy28_FSMCConfig();
+
+    //UiLcdRA8875_InitLCD();
+
+    UiLcdHy28_Reset();
+    UiLcdHy28_SendRegisters(ra8875, sizeof(ra8875) / sizeof(RegisterValue_t));
+    mchf_display.display_type = DISPLAY_HY28B_PARALLEL;
+    return retval;
+
+#else
+
+
     uint8_t retval = DISPLAY_NONE;
 
     mchf_display.DeviceCode = 0x0000;
@@ -1392,6 +1850,8 @@ uint8_t UiLcdHy28_Init()
 
     mchf_display.display_type = retval;
     return retval;
+
+#endif
 }
 
 

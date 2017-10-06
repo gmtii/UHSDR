@@ -73,7 +73,7 @@ const float32_t NR_test_sinus_samp[128] = {
 
 #endif
 
-
+#define FDV_BUFFER_IQ_FIFO_SIZE (FDV_BUFFER_IQ_NUM+1)
 
 #ifdef USE_FREEDV
 

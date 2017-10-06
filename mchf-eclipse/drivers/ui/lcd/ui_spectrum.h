@@ -111,7 +111,7 @@ enum
 
 
 // Dependent on FFT samples,but should be less than control width!
-#define SPECTRUM_WIDTH          256
+#define SPECTRUM_WIDTH          800
 
 // Spectrum scope operational constants
 
@@ -144,7 +144,7 @@ enum
 // Spectrum draw params
 //
 // Spectrum display
-#define POS_SPECTRUM_IND_X					60
+#define POS_SPECTRUM_IND_X					0
 #define POS_SPECTRUM_IND_Y					150
 #define POS_SPECTRUM_IND_H					80
 #define POS_SPECTRUM_IND_W                  258
@@ -173,7 +173,7 @@ enum
 #define SPECTRUM_HEIGHT			(POS_SPECTRUM_IND_H - 10)
 
 // How much larger than the NORMAL spectrum display should the BIG Spectrum display be?
-#define SPEC_LIGHT_MORE_POINTS 15
+#define SPEC_LIGHT_MORE_POINTS 40
 
 
 #define     POS_SPECTRUM_GRID_VERT_START (POS_SPECTRUM_IND_X-1)
@@ -190,6 +190,7 @@ typedef struct SpectrumDisplay
 {
     // Samples buffer
     float32_t   FFT_Samples[FFT_IQ_BUFF_LEN];
+    float32_t   FFT_TempData[FFT_IQ_BUFF_LEN];
     float32_t   FFT_MagData[SPEC_BUFF_LEN];
     float32_t   FFT_AVGData[SPEC_BUFF_LEN];     // IIR low-pass filtered FFT buffer data
 
@@ -224,7 +225,7 @@ typedef struct SpectrumDisplay
 
     uint16_t waterfall_colours[NUMBER_WATERFALL_COLOURS+1];  // palette of colors for waterfall data
 
-    uint8_t  waterfall[WATERFALL_MAX_SIZE][SPECTRUM_WIDTH];    // circular buffer used for storing waterfall data - remember to increase this if the waterfall is made larger!
+    uint8_t  waterfall[SPECTRUM_WIDTH];    // circular buffer used for storing waterfall data - remember to increase this if the waterfall is made larger!
 
     uint16_t wfall_line;        // pointer to current line of waterfall data
     uint16_t wfall_size;        // vertical size of the waterfall
