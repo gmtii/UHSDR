@@ -43,6 +43,7 @@
         #define MEM_Init() MX_FSMC_Init()
     #endif
 
+    // FIXME: Clarify why different REG address for RA8875? Is this a GMTII HW specific setting?
     #ifdef USE_DRIVER_RA8875
     #define LCD_REG      (*((volatile unsigned short *) 0x60004000))
     #else
@@ -118,6 +119,8 @@ typedef struct  {
     uint16_t reg;
     uint16_t val;
 } RegisterValue_t;
+
+#ifndef USE_DRIVER_RA8875
 
 static const RegisterValue_t ili9320[] =
 {
@@ -253,7 +256,6 @@ static const RegisterValue_t spdfd5408b[] =
     {0x07,0x0173},
 };
 
-
 static const RegisterValue_t ili932x[] =
 {
     // NPI: {0xE5, 0x78F0},   // set SRAM internal timing I guess this is the relevant line for getting LCDs to work which are "out-of-specs"...
@@ -327,8 +329,7 @@ static const RegisterValue_t ili932x[] =
     // activate display using 262k colours
     {0x07,0x0133},
 };
-
-
+#else
 static const RegisterValue_t ra8875[] =
 {
         { 0x01, 0x01 }, // Software reset the LCD
@@ -373,7 +374,7 @@ static const RegisterValue_t ra8875[] =
 
         { 0x8E, 0x80},
 };
-
+#endif
 
 
 const uint8_t touchscreentable [] = {0x07,0x09,
@@ -723,26 +724,25 @@ unsigned short UiLcdHy28_LcdReadDataSpi()
     return value;
 }
 
-#ifdef USE_DRIVER_RA8875
-
-void UiLcdHy28_WriteReg(unsigned short LCD_Reg, unsigned short LCD_RegValue)
+void UiLcdHy28_RA8875_WaitReady()
 {
-
-    ushort temp;
+    uint16_t temp;
     do {
         temp = LCD_REG;
     } while ((temp & 0x80) == 0x80);
-
-    LCD_REG = LCD_Reg;
-    __DMB();
-    LCD_RAM = LCD_RegValue;
-    __DMB();
 }
 
-#else
-
+/**
+ * @brief writes a controller register in its native width 16 bit or 8bit
+ * width is controller dependent (RA8875 uses 8bit, all other 16bit)
+ */
 void UiLcdHy28_WriteReg(unsigned short LCD_Reg, unsigned short LCD_RegValue)
 {
+
+#ifdef USE_DRIVER_RA8875
+    UiLcdHy28_RA8875_WaitReady();
+#endif
+
     if(UiLcdHy28_SpiDisplayUsed())
     {
         UiLcdHy28_WriteIndexSpi(LCD_Reg);
@@ -757,25 +757,17 @@ void UiLcdHy28_WriteReg(unsigned short LCD_Reg, unsigned short LCD_RegValue)
     }
 }
 
-#endif
-
-
-#ifdef USE_DRIVER_RA8875
-
-unsigned short UiLcdHy28_ReadReg( unsigned short LCD_Reg)
+void UiLcdRa8875_WriteReg_8bit(uint16_t LCD_Reg, uint8_t LCD_RegValue)
 {
-    uint16_t retval;
-
-    // Write 16-bit Index (then Read Reg)
-    LCD_REG = LCD_Reg;
-    // Read 16-bit Reg
-    __DMB();
-    retval = LCD_RAM;
-
-    return retval;
+    UiLcdHy28_WriteReg(LCD_Reg, LCD_RegValue);
+}
+void UiLcdRa8875_WriteReg_16bit(uint16_t LCD_Reg, uint16_t LCD_RegValue)
+{
+    UiLcdRa8875_WriteReg_8bit(LCD_Reg,LCD_RegValue & 0xff);
+    UiLcdRa8875_WriteReg_8bit(LCD_Reg,(LCD_RegValue >> 8) & 0xff);
 }
 
-#else
+
 
 unsigned short UiLcdHy28_ReadReg( unsigned short LCD_Reg)
 {
@@ -799,49 +791,17 @@ unsigned short UiLcdHy28_ReadReg( unsigned short LCD_Reg)
     return retval;
 }
 
-#endif
-
-#ifdef USE_DRIVER_RA8875
-
-void UiLcdHy28_SetCursorA(unsigned short Xpos, unsigned short Ypos)
-{
-
-    unsigned short temp;
-
-    /* Horizontal start */
-    temp = Xpos;
-    UiLcdHy28_WriteReg(0x46, temp);
-    temp = Xpos >> 8;
-    UiLcdHy28_WriteReg(0x47, temp);
-
-    /* Horizontal end */
-    temp = Ypos;
-    UiLcdHy28_WriteReg(0x48, temp);
-    temp = Ypos >> 8;
-    UiLcdHy28_WriteReg(0x49, temp);
-
-}
-
-#else
-
 static void UiLcdHy28_SetCursorA( unsigned short Xpos, unsigned short Ypos )
 {
+#ifdef USE_DRIVER_RA8875
+    UiLcdRa8875_WriteReg_16bit(0x46, Xpos);
+    UiLcdRa8875_WriteReg_16bit(0x48, Ypos);
+#else
     UiLcdHy28_WriteReg(0x20, Ypos );
     UiLcdHy28_WriteReg(0x21, Xpos );
-}
-
 #endif
 
-#ifdef USE_DRIVER_RA8875
-
-static void UiLcdHy28_WriteRAM_Prepare()
-{
-    LCD_REG = 0x02;
-    __DMB();
-
 }
-
-#else
 
 static void UiLcdHy28_WriteRAM_Prepare()
 {
@@ -852,54 +812,48 @@ static void UiLcdHy28_WriteRAM_Prepare()
     }
     else
     {
+#ifdef USE_DRIVER_RA8875
+        LCD_REG = 0x02;
+#else
         LCD_REG = 0x22;
+#endif
+
         __DMB();
     }
 }
 
-#endif
 
 
 #ifdef USE_DRIVER_RA8875
 
 void UiLcdRA8875_SetForegroundColor(uint16_t Color)
 {
-    UiLcdHy28_WriteReg(0x63, (uint16_t) (Color >> 11)); /* ra8875_red */
-    UiLcdHy28_WriteReg(0x64, (uint16_t) (Color >> 5)); /* ra8875_green */
-    UiLcdHy28_WriteReg(0x65, (uint16_t) (Color)); /* ra8875_blue */
-}
-
-void UiLcdRA8875_SetActiveWindow(uint16_t XLeft, uint16_t XRight, uint16_t YTop,
-        uint16_t YBottom)
-{
-
-    uint16_t temp;
-
-    /* setting active window X */
-    temp = XLeft;
-    UiLcdHy28_WriteReg(0x30, temp);
-    temp = XLeft >> 8;
-    UiLcdHy28_WriteReg(0x31, temp);
-
-    temp = XRight;
-    UiLcdHy28_WriteReg(0x34, temp);
-    temp = XRight >> 8;
-    UiLcdHy28_WriteReg(0x35, temp);
-
-    /* setting active window Y */
-    temp = YTop;
-    UiLcdHy28_WriteReg(0x32, temp);
-    temp = YTop >> 8;
-    UiLcdHy28_WriteReg(0x33, temp);
-
-    temp = YBottom;
-    UiLcdHy28_WriteReg(0x36, temp);
-    temp = YBottom >> 8;
-    UiLcdHy28_WriteReg(0x37, temp);
-
+    UiLcdRa8875_WriteReg_8bit(0x63, (uint16_t) (Color >> 11)); /* ra8875_red */
+    UiLcdRa8875_WriteReg_8bit(0x64, (uint16_t) (Color >> 5)); /* ra8875_green */
+    UiLcdRa8875_WriteReg_8bit(0x65, (uint16_t) (Color)); /* ra8875_blue */
 }
 
 #endif
+
+void UiLcdHy28_SetActiveWindow(uint16_t XLeft, uint16_t XRight, uint16_t YTop,
+        uint16_t YBottom)
+{
+#ifdef USE_DRIVER_RA8875
+    /* setting active window X */
+    UiLcdRa8875_WriteReg_16bit(0x30, XLeft);
+    UiLcdRa8875_WriteReg_16bit(0x34, XRight);
+
+    /* setting active window Y */
+    UiLcdRa8875_WriteReg_16bit(0x32, YTop);
+    UiLcdRa8875_WriteReg_16bit(0x36, YBottom);
+#else
+    UiLcdHy28_WriteReg(0x52, XLeft);    // Horizontal GRAM Start Address
+    UiLcdHy28_WriteReg(0x53, XRight);    // Horizontal GRAM End Address  -1
+
+    UiLcdHy28_WriteReg(0x50, YTop);    // Vertical GRAM Start Address
+    UiLcdHy28_WriteReg(0x51, YBottom);    // Vertical GRAM End Address    -1
+#endif
+}
 
 static void UiLcdHy28_BulkWrite(uint16_t* pixel, uint32_t len)
 {
@@ -944,15 +898,13 @@ static void UiLcdHy28_FinishWaitBulkWrite()
     }
 }
 
-#ifdef USE_DRIVER_RA8875
 
 static void UiLcdHy28_OpenBulkWrite(ushort x, ushort width, ushort y,
         ushort height)
 {
 
     UiLcdHy28_FinishWaitBulkWrite();
-
-    UiLcdRA8875_SetActiveWindow(x, x + width - 1, y, y + height - 1);
+    UiLcdHy28_SetActiveWindow(x, x + width - 1, y, y + height - 1);
     UiLcdHy28_SetCursorA(x, y);
     UiLcdHy28_WriteRAM_Prepare();
 
@@ -960,36 +912,12 @@ static void UiLcdHy28_OpenBulkWrite(ushort x, ushort width, ushort y,
 
 static void UiLcdHy28_CloseBulkWrite()
 {
-
-    UiLcdRA8875_SetActiveWindow(0, 799, 0, 479);
+#ifdef USE_DRIVER_RA8875
+    // FIXME: Use constants in order to support same driver, other screen size
+    UiLcdHy28_SetActiveWindow(0, 799, 0, 479);
     UiLcdHy28_WriteReg(0x40, 0);
-
-}
-
-#else
-
-static void UiLcdHy28_OpenBulkWrite(ushort x, ushort width, ushort y, ushort height)
-{
-
-    UiLcdHy28_FinishWaitBulkWrite();
-
-    UiLcdHy28_SetCursorA(x, y); // WE DON'T NEED THIS SINCE WE ALWAYS WRITE IN THE WINDOW ADDRESS due to Reg03:ORG = 1: set starting position of character
-
-    // UiLcdHy28_WriteReg(0x03,  0x1038);    // WE DON'T NEED THIS SINCE THIS IS DONE ALREADY IN INIT: set GRAM write direction and BGR=1 and turn on cursor auto-increment
-    UiLcdHy28_WriteReg(0x50, y);    // Vertical GRAM Start Address
-    UiLcdHy28_WriteReg(0x51, y + height -1);    // Vertical GRAM End Address    -1
-    UiLcdHy28_WriteReg(0x52, x);    // Horizontal GRAM Start Address
-    UiLcdHy28_WriteReg(0x53, x + width -1);    // Horizontal GRAM End Address  -1
-
-    UiLcdHy28_WriteRAM_Prepare();                   // prepare for bulk-write to character window
-
-
-}
-
-static void UiLcdHy28_CloseBulkWrite()
-{
-}
 #endif
+}
 
 #define PIXELBUFFERSIZE 512
 #define PIXELBUFFERCOUNT 2
@@ -1080,77 +1008,48 @@ void UiLcdHy28_LcdClear(ushort Color)
 
 #if 1
 
-#ifdef USE_DRIVER_RA8875
-
-void UiLcdHy28_DrawColorPoint(unsigned short Xpos, unsigned short Ypos,
-        unsigned short point)
+void UiLcdHy28_DrawColorPoint( unsigned short Xpos, unsigned short Ypos, unsigned short point)
 {
+#ifdef USE_DRIVER_RA8875
     if( Xpos < MAX_X && Ypos < MAX_Y )
     {
     UiLcdHy28_SetCursorA(Xpos, Ypos);
     UiLcdHy28_WriteReg(0x02, point);
     }
-}
 #else
-
-void UiLcdHy28_DrawColorPoint( unsigned short Xpos, unsigned short Ypos, unsigned short point)
-{
-
     if( Xpos < MAX_X && Ypos < MAX_Y )
     {
         UiLcdHy28_OpenBulkWrite(Xpos,Xpos,Ypos,Ypos);
         UiLcdHy28_WriteDataOnly(point);
         UiLcdHy28_CloseBulkWrite();
     }
+#endif
 }
 #endif
-#endif
 
-#ifdef USE_DRIVER_RA8875
-
-void UiLcdHy28_DrawFullRect(ushort Xpos, ushort Ypos, ushort Height,
-        ushort Width, ushort color)
-{
-
-    ushort temp;
-
-    UiLcdRA8875_SetForegroundColor(color);
-    /* Horizontal start */
-    temp = Xpos;
-    UiLcdHy28_WriteReg(0x91, temp);
-    temp = Xpos >> 8;
-    UiLcdHy28_WriteReg(0x92, temp);
-
-    /* Horizontal end */
-    temp = (Xpos + Width);
-    UiLcdHy28_WriteReg(0x95, temp);
-    temp = (Xpos + Width) >> 8;
-    UiLcdHy28_WriteReg(0x96, temp);
-
-    /* Vertical start */
-    temp = Ypos;
-    UiLcdHy28_WriteReg(0x93, temp);
-    temp = Ypos >> 8;
-    UiLcdHy28_WriteReg(0x94, temp);
-
-    /* Vertical end */
-    temp = (Ypos + Height);
-    UiLcdHy28_WriteReg(0x97, temp);
-    temp = (Ypos + Height) >> 8;
-    UiLcdHy28_WriteReg(0x98, temp);
-
-    UiLcdHy28_WriteReg(0x90, 0xB0);
-}
-
-#else
 
 void UiLcdHy28_DrawFullRect(ushort Xpos, ushort Ypos, ushort Height, ushort Width ,ushort color)
 {
+#ifdef USE_DRIVER_RA8875
+    UiLcdRA8875_SetForegroundColor(color);
+    /* Horizontal start */
+    UiLcdRa8875_WriteReg_16bit(0x91, Xpos);
+    /* Horizontal end */
+    UiLcdRa8875_WriteReg_16bit(0x95, Xpos + Width);
+    /* Vertical start */
+    UiLcdRa8875_WriteReg_16bit(0x93, Ypos);
+    /* Vertical end */
+    UiLcdRa8875_WriteReg_16bit(0x97, Ypos + Height);
+
+    // Fill rectangle
+    UiLcdRa8875_WriteReg_8bit(0x90, 0xB0);
+#else
     UiLcdHy28_OpenBulkWrite(Xpos, Width, Ypos, Height);
     UiLcdHy28_BulkWriteColor(color,(uint32_t)Height * (uint32_t)Width);
     UiLcdHy28_CloseBulkWrite();
-}
 #endif
+
+}
 
 
 #ifdef  USE_DRIVER_RA8875
@@ -1217,18 +1116,10 @@ void UiLcdRA8875_setScrollWindow(int16_t XL,int16_t XR ,int16_t YT ,int16_t YB)
 //#define RA8875_VESW1                0x3F//Vertical     End   Point 1 of Scroll Window
 
 
-    UiLcdHy28_WriteReg(RA8875_HSSW0,(XL & 0xFF));
-    UiLcdHy28_WriteReg(RA8875_HSSW0+1,(XL >> 8));
-
-    UiLcdHy28_WriteReg(RA8875_HESW0,(XR & 0xFF));
-    UiLcdHy28_WriteReg(RA8875_HESW0+1,(XR >> 8));
-
-    UiLcdHy28_WriteReg(RA8875_VSSW0,(YT & 0xFF));
-    UiLcdHy28_WriteReg(RA8875_VSSW0+1,(YT >> 8));
-
-    UiLcdHy28_WriteReg(RA8875_VESW0,(YB & 0xFF));
-    UiLcdHy28_WriteReg(RA8875_VESW0+1,(YB >> 8));
-
+    UiLcdRa8875_WriteReg_16bit(RA8875_HSSW0,XL);
+    UiLcdRa8875_WriteReg_16bit(RA8875_HESW0,XR);
+    UiLcdRa8875_WriteReg_16bit(RA8875_VSSW0,YT);
+    UiLcdRa8875_WriteReg_16bit(RA8875_VESW0,YB);
 }
 
 /**************************************************************************/
@@ -1244,11 +1135,8 @@ void UiLcdRA8875_scroll(int16_t x,int16_t y)
 #define RA8875_VOFS0                  0x26//Vertical Scroll Offset Register 0
 #define RA8875_VOFS1                  0x27//Vertical Scroll Offset Register 1
 
-    UiLcdHy28_WriteReg(RA8875_HOFS0,(x & 0xFF));
-    UiLcdHy28_WriteReg(RA8875_HOFS1,(x >> 8));
-
-    UiLcdHy28_WriteReg(RA8875_VOFS0,(y & 0xFF));
-    UiLcdHy28_WriteReg(RA8875_VOFS1,(y >> 8));
+    UiLcdRa8875_WriteReg_16bit(RA8875_HOFS0,x);
+    UiLcdRa8875_WriteReg_16bit(RA8875_VOFS0,y);
 
 }
 
@@ -1283,64 +1171,32 @@ void UiLcdHy28_DrawStraightLine(ushort x, ushort y, ushort Length, uchar Directi
     #define LCD_DLVER0  (0x97)      /* Draw Line/Square Vertical End Address Register0 */
     #define LCD_DLVER1  (0x98)      /* Draw Line/Square Vertical End Address Register1 */
 
-    int16_t temp;
 
     UiLcdRA8875_SetForegroundColor(color);
+
+    /* Horizontal + vertical start */
+    UiLcdRa8875_WriteReg_16bit(LCD_DLHSR0, x);
+    UiLcdRa8875_WriteReg_16bit(LCD_DLVSR0, y);
 
     if (Direction == LCD_DIR_VERTICAL)
 
     {
-        /* Horizontal start */
-        temp = x;
-        UiLcdHy28_WriteReg(LCD_DLHSR0, temp);
-        temp = x >> 8;
-        UiLcdHy28_WriteReg(LCD_DLHSR1, temp);
 
         /* Horizontal end */
-        temp = x;
-        UiLcdHy28_WriteReg(LCD_DLHER0, temp);
-        temp = x >> 8;
-        UiLcdHy28_WriteReg(LCD_DLHER1, temp);
-
-        /* Vertical start */
-        temp = y;
-        UiLcdHy28_WriteReg(LCD_DLVSR0, temp);
-        temp = y >> 8;
-        UiLcdHy28_WriteReg(LCD_DLVSR1, temp);
+        UiLcdRa8875_WriteReg_16bit(LCD_DLHER0, x);
 
         /* Vertical end */
-        temp = (y + Length);
-        UiLcdHy28_WriteReg(LCD_DLVER0, temp);
-        temp = (y + Length) >> 8;
-        UiLcdHy28_WriteReg(LCD_DLVER1, temp);
+        UiLcdRa8875_WriteReg_16bit(LCD_DLVER0, y + Length);
     } else {
 
-        /* Horizontal start */
-        temp = x;
-        UiLcdHy28_WriteReg(LCD_DLHSR0, temp);
-        temp = x >> 8;
-        UiLcdHy28_WriteReg(LCD_DLHSR1, temp);
-
         /* Horizontal end */
-        temp = (x + Length);
-        UiLcdHy28_WriteReg(LCD_DLHER0, temp);
-        temp = (x + Length) >> 8;
-        UiLcdHy28_WriteReg(LCD_DLHER1, temp);
-
-        /* Vertical start */
-        temp = y;
-        UiLcdHy28_WriteReg(LCD_DLVSR0, temp);
-        temp = y >> 8;
-        UiLcdHy28_WriteReg(LCD_DLVSR1, temp);
+        UiLcdRa8875_WriteReg_16bit(LCD_DLHER0, x + Length);
 
         /* Vertical end */
-        temp = y;
-        UiLcdHy28_WriteReg(LCD_DLVER0, temp);
-        temp = y >> 8;
-        UiLcdHy28_WriteReg(LCD_DLVER1, temp);
+        UiLcdRa8875_WriteReg_16bit(LCD_DLVER0, y);
     }
 
-    UiLcdHy28_WriteReg(LCD_DCR, 0x80);
+    UiLcdRa8875_WriteReg_8bit(LCD_DCR, 0x80);
 
 }
 
@@ -1705,11 +1561,14 @@ static void UiLcdHy28_SendRegisters(const RegisterValue_t* regvals, uint16_t cou
         }
         else
         {
+            // TODO: Decide how we handle 16 vs. 8 bit writes here
+            // I would propose either per register setting or per register set setting
             UiLcdHy28_WriteReg(regvals[idx].reg, regvals[idx].val);
         }
     }
 }
 
+#ifndef USE_DRIVER_RA8875
 static uint16_t UiLcdHy28_InitA(uint32_t display_type)
 {
 
@@ -1777,6 +1636,7 @@ static uint16_t UiLcdHy28_InitA(uint32_t display_type)
     return retval;
 }
 
+#endif
 
 /*
  * brief Identifies and initializes to HY28x display family
@@ -1806,7 +1666,6 @@ uint8_t UiLcdHy28_Init()
     UiLcdHy28_Reset();
     UiLcdHy28_SendRegisters(ra8875, sizeof(ra8875) / sizeof(RegisterValue_t));
     mchf_display.display_type = DISPLAY_HY28B_PARALLEL;
-    return retval;
 
 #else
 
@@ -1849,9 +1708,11 @@ uint8_t UiLcdHy28_Init()
     }
 
     mchf_display.display_type = retval;
-    return retval;
 
 #endif
+
+    return retval;
+
 }
 
 
@@ -1865,6 +1726,7 @@ static inline void UiLcdHy28_SetSpiPrescaler(const uint16_t baudrate_prescaler)
     uint16_t tmpreg = SPI2->CR1;
     tmpreg &= ~(uint16_t)((uint32_t) (SPI_BAUDRATEPRESCALER_256));
     tmpreg |= (uint16_t)((uint32_t) (baudrate_prescaler));
+
     /* Write to SPIx CR1 */
     SPI2->CR1 = tmpreg;
 }
